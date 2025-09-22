@@ -60,9 +60,7 @@ class DISTS(torch.nn.Module):
         self.alpha.data.normal_(0.1,0.01)
         self.beta.data.normal_(0.1,0.01)
         if load_weights:
-            # Load weights from the same directory as this file
-            weights_path = os.path.join(os.path.dirname(__file__), 'weights.pt')
-            weights = torch.load(weights_path)
+            weights = torch.load(os.path.join(sys.prefix,'weights.pt'))
             self.alpha.data = weights['alpha']
             self.beta.data = weights['beta']
         
@@ -125,7 +123,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--ref', type=str, default='../images/r0.png')
-    parser.add_argument('--dist', type=str, default='../images/r1.png')
+    parser.add_argument('--dist"E:\Seagate\output_top_keyframe_videos\6261_keyframes\0008_clip11_frame044_6261_11.jpg"', type=str, default='../images/r1.png')
     args = parser.parse_args()
     
     ref = prepare_image(Image.open(args.ref).convert("RGB"))

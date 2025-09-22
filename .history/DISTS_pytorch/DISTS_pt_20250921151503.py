@@ -60,9 +60,7 @@ class DISTS(torch.nn.Module):
         self.alpha.data.normal_(0.1,0.01)
         self.beta.data.normal_(0.1,0.01)
         if load_weights:
-            # Load weights from the same directory as this file
-            weights_path = os.path.join(os.path.dirname(__file__), 'weights.pt')
-            weights = torch.load(weights_path)
+            weights = torch.load(os.path.join(sys.prefix,'weights.pt'))
             self.alpha.data = weights['alpha']
             self.beta.data = weights['beta']
         
