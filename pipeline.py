@@ -45,7 +45,6 @@ from src.keyframe.medoid_selector import (
 def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
-
 def read_video_basic_info(video_path: str) -> Tuple[int, float]:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -57,7 +56,6 @@ def read_video_basic_info(video_path: str) -> Tuple[int, float]:
     cap.release()
     return total_frames, fps
 
-
 def frames_to_timecode(frame_idx: int, fps: float) -> str:
     t = frame_idx / max(1.0, fps)
     h = int(t // 3600)
@@ -65,11 +63,9 @@ def frames_to_timecode(frame_idx: int, fps: float) -> str:
     s = t % 60
     return f"{h:02d}:{m:02d}:{s:06.3f}"
 
-
 def save_json(obj: Any, path: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
-
 
 def save_csv(rows: List[Dict[str, Any]], path: str) -> None:
     if not rows:
@@ -82,7 +78,6 @@ def save_csv(rows: List[Dict[str, Any]], path: str) -> None:
         w.writeheader()
         for r in rows:
             w.writerow(r)
-
 
 def export_scene_previews(
     video_path: str,
@@ -391,10 +386,20 @@ python pipeline.py \
   --video samples/Sakuga/10736.mp4 \
   --backend pyscenedetect --threshold 27 \
   --distance_backend lpips --lpips_net alex \
-  --sample_stride 10 --max_frames_per_scene 30 \
+  --sample_stride 3 --max_frames_per_scene 100 \
   --keyframes_per_scene 1 --nms_radius 3 \
   --resize_w 320 --resize_h 180 \
   --out_dir outputs/run_psd_lpips \
+  --export_preview
+# 1) PySceneDetect + DISTS(Alex)
+python pipeline.py \
+  --video samples/Sakuga/10736.mp4 \
+  --backend pyscenedetect --threshold 27 \
+  --distance_backend dists --lpips_net alex \
+  --sample_stride 3 --max_frames_per_scene 100 \
+  --keyframes_per_scene 1 --nms_radius 3 \
+  --resize_w 320 --resize_h 180 \
+  --out_dir outputs/run_psd_dists \
   --export_preview
 
 # 2) TransNetV2 (PyTorch) + DISTS
