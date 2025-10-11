@@ -39,6 +39,8 @@ from src.keyframe.medoid_selector import (
     Keyframe as KF,
 )
 
+from src.keyframe.random_selector import RandomSelector
+
 # ------------------------------
 # Basic I/O helpers
 # ------------------------------
@@ -245,6 +247,12 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--batch_pairs", type=int, default=16,
                     help="Mini-batch size of (i,j) pairs when computing pairwise distances.")
 
+    # Keyframe selection
+    ap.add_argument("--keyframe_selector", type=str, default="medoid", choices=["medoid", "random"],
+                    help="Keyframe selection strategy.")
+    ap.add_argument("--random_seed", type=int, default=None,
+                    help="Random seed for reproducibility (only used with random selector).")
+
     # Keyframe export
     ap.add_argument("--key_jpeg_quality", type=int, default=95,
                     help="JPEG quality for exported keyframe images.")
@@ -323,7 +331,11 @@ def main():
         dist_kwargs.update({"as_distance": bool(args.dists_as_distance)})
 
     metric = create_metric(args.distance_backend, **dist_kwargs)
-    selector = MedoidSelector(metric=metric)
+
+    if args.keyframe_selector == "random":
+        selector = RandomSelector(seed=args.random_seed)
+    else:
+        selector = MedoidSelector(metric=metric)
 
     # Prepare resize
     resize_to: Optional[Tuple[int, int]]
@@ -380,6 +392,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
 """
 # 1) PySceneDetect + LPIPS(Alex)
 python pipeline.py \
@@ -391,6 +404,7 @@ python pipeline.py \
   --resize_w 320 --resize_h 180 \
   --out_dir outputs/run_psd_lpips \
   --export_preview
+
 # 1) PySceneDetect + DISTS(Alex)
 python pipeline.py \
   --video samples/Sakuga/10736.mp4 \
@@ -413,4 +427,15 @@ python pipeline.py \
   --keyframes_per_scene 2 --nms_radius 4 \
   --resize_w 320 --resize_h 180 \
   --out_dir outputs/run_tv2_dists
+
+python pipeline.py \
+  --video samples/Sakuga/10736.mp4 \
+  --backend pyscenedetect --threshold 27 \
+  --distance_backend lpips --lpips_net alex \
+  --sample_stride 3 --max_frames_per_scene 100 \
+  --keyframes_per_scene 1 --nms_radius 3 \
+  --resize_w 320 --resize_h 180 \
+  --out_dir outputs/run_psd_lpips \
+  --export_preview \
+  --keyframe_selector random --random_seed 42
 """

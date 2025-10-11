@@ -116,7 +116,18 @@ def redundancy_cosine(
 
 
 # ---------- Quality (NR-IQA proxies) ----------
+"""
+✅ 4. Quality (NR-IQA proxies – chất lượng hình ảnh)
+Implemented:
 
+sharpness_laplacian() → đo độ sắc nét bằng phương sai Laplacian.
+
+exposure_score() → đo độ phơi sáng, phạt nếu lệch khỏi mức sáng trung bình.
+
+noise_proxy() → đo năng lượng tần số cao (proxy cho nhiễu).
+
+technical_quality_scores() → tổng hợp 3 chỉ số trên bằng median.
+"""
 def sharpness_laplacian(img_bgr: np.ndarray) -> float:
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())

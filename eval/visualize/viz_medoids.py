@@ -575,50 +575,30 @@ if __name__ == "__main__":
     main()
 
 """
-python -m eval.visualize.viz_medoids \
-  --video samples/Sakuga/10736.mp4 \
-  --scenes_json outputs/run_psd_lpips/scenes.json \
-  --keyframes_csv outputs/run_psd_lpips/keyframes.csv \
-  --out_dir outputs/viz_medoids_lpips \
-  --backbone resnet50 \
-  --sample_stride 1 --max_frames_eval 2000 \
-  --tsne_perplexity 30 --tsne_iter 1000 \
-  --top_neighbors 50
 
 python -m eval.visualize.viz_medoids \
   --video samples/Sakuga/10736.mp4 \
   --scenes_json outputs/run_psd_lpips/scenes.json \
   --keyframes_csv outputs/run_psd_lpips/keyframes.csv \
-  --out_dir outputs/viz_medoids_lpips \
+  --out_dir outputs/visualize/viz_medoids_lpips \
   --backbone resnet50 \
   --sample_stride 1 --max_frames_eval 2000 \
   --tsne_perplexity 30 --tsne_iter 1000 \
   --top_neighbors 50 \
-  --frames_cache outputs/shared_cache/10736_stride1_max2000_resnet50.npz \
+  --frames_cache outputs/visualize/shared_cache/10736_stride1_max2000_resnet50.npz \
   --tsne_mode frames \
   --embed_keys_direct
 
-
 python -m eval.visualize.viz_medoids \
   --video samples/Sakuga/10736.mp4 \
   --scenes_json outputs/run_psd_dists/scenes.json \
   --keyframes_csv outputs/run_psd_dists/keyframes.csv \
-  --out_dir outputs/viz_medoids_dists \
-  --backbone resnet50 \
-  --sample_stride 1 --max_frames_eval 2000 \
-  --tsne_perplexity 30 --tsne_iter 1000 \
-  --top_neighbors 50
-  
-python -m eval.visualize.viz_medoids \
-  --video samples/Sakuga/10736.mp4 \
-  --scenes_json outputs/run_psd_dists/scenes.json \
-  --keyframes_csv outputs/run_psd_dists/keyframes.csv \
-  --out_dir outputs/viz_medoids_dists \
+  --out_dir outputs/visualize/viz_medoids_dists \
   --backbone resnet50 \
   --sample_stride 1 --max_frames_eval 2000 \
   --tsne_perplexity 30 --tsne_iter 1000 \
   --top_neighbors 50 \
-  --frames_cache outputs/shared_cache/10736_stride1_max2000_resnet50.npz \
+  --frames_cache outputs/visualize/shared_cache/10736_stride1_max2000_resnet50.npz \
   --tsne_mode frames \
   --embed_keys_direct
 

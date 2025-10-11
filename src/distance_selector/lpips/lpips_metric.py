@@ -4,7 +4,7 @@
 from __future__ import annotations
 from typing import Optional, Any
 import torch
-import lpips
+from src.distance_selector.lpips.src.lpips import lpips
 import numpy as np
 
 from ..interface import DistanceMetric
