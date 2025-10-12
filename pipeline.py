@@ -261,6 +261,7 @@ def build_argparser() -> argparse.ArgumentParser:
 # ------------------------------
 def main():
     args = build_argparser().parse_args()
+    args.out_dir = args.out_dir + f"_{args.video.split('/')[-1][:-4]}"
 
     # Prepare output folders
     ensure_dir(args.out_dir)

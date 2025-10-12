@@ -5,5 +5,5 @@ config:
   SAM2_CHECKPOINT: "./Grounded-SAM-2/checkpoints/sam2.1_hiera_tiny.pt"
   SAM2_MODEL_CONFIG: "configs/sam2.1/sam2.1_hiera_t.yaml"
   GROUNDING_DINO_MODEL: "IDEA-Research/grounding-dino-tiny"
-  BOX_THRESHOLD: 0.01
-  TEXT_THRESHOLD: 0.01
+  BOX_THRESHOLD: 0.02
+  TEXT_THRESHOLD: 0.02

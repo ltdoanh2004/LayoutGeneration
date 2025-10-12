@@ -40,7 +40,6 @@ def main():
         output_dir=output_dir
     )
     
-    # Chạy inference
     print("\n" + "="*60)
     print("Starting inference...")
     print("="*60 + "\n")
