@@ -81,7 +81,7 @@ def main():
     """Main function to process all videos"""
     
     # Configuration
-    data_folder = "samples/vssum"
+    data_folder = "samples"
     output_base = "outputs"
     
     # Check if Data folder exists
