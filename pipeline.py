@@ -39,6 +39,9 @@ from src.keyframe.medoid_selector import (
     Keyframe as KF,
 )
 
+from obejctfree.get_objects import orch
+
+
 # ------------------------------
 # Basic I/O helpers
 # ------------------------------

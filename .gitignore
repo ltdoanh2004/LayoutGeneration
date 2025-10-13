@@ -10,3 +10,4 @@ outputs/
 src/models/TransNetV2/
 outputs_14653/*
 examples
+objectfree
