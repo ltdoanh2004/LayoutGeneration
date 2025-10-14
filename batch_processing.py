@@ -77,6 +77,63 @@ def run_pipeline_for_video(video_path: str, base_output_dir: str = "outputs") ->
         print(f"Unexpected error: {str(e)}")
         return False
 
+def run_eval_and_visualize_for_all_videos(data_folder: str, eval_script: str, visualize_script: str, out_base: str):
+    """
+    Run eval_keyframes.py and visualize for all videos in data_folder.
+    Assumes keyframes and scenes are in outputs/run_tv2_dists_{video_name}/
+    """
+    mp4_files = find_mp4_videos(data_folder)
+    if not mp4_files:
+        print(f"No MP4 videos found in {data_folder}")
+        return
+
+    for video_path in mp4_files:
+        video_name = Path(video_path).stem
+        # Đúng với pipeline: outputs/run_tv2_dists_{video_name}/scenes.json
+        pipeline_dir = f"outputs/run_tv2_dists_{video_name}"
+        scenes_json = f"{pipeline_dir}/scenes.json"
+        keyframes_csv = f"{pipeline_dir}/keyframes.csv"
+        out_dir = f"{out_base}/eval_{video_name}"
+
+        # Run eval_keyframes.py
+        eval_cmd = [
+            "python", eval_script,
+            "--video", video_path,
+            "--scenes_json", scenes_json,
+            "--keyframes_csv", keyframes_csv,
+            "--out_dir", out_dir,
+            "--backbone", "resnet50",
+            "--sample_stride", "10",  # match stride in paper
+            "--max_frames_eval", "200",
+            "--tau", "0.3"
+        ]
+        print(f"\n=== Evaluating keyframes for {video_name} ===")
+        try:
+            subprocess.run(eval_cmd, check=True)
+            print(f"✅ Eval done for {video_name}")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Eval failed for {video_name}: {e}")
+
+        # Run visualize with proper PYTHONPATH
+        viz_cmd = [
+            "python", "-m", "eval.visualize.viz_medoids",
+            "--video", video_path,
+            "--scenes_json", scenes_json,
+            "--keyframes_csv", keyframes_csv,
+            "--out_dir", out_dir
+        ]
+        print(f"\n=== Visualizing keyframes for {video_name} ===")
+        try:
+            # Set PYTHONPATH to current directory for module imports
+            env = os.environ.copy()
+            env['PYTHONPATH'] = os.getcwd()
+            subprocess.run(viz_cmd, check=True, env=env)
+            print(f"✅ Visualization done for {video_name}")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Visualization failed for {video_name}: {e}")
+
+   
+
 def main():
     """Main function to process all videos"""
     
@@ -139,4 +196,10 @@ def main():
     print(f"\n📁 All outputs saved in: {output_base}/")
 
 if __name__ == "__main__":
-    main()
+    run_eval_and_visualize_for_all_videos(
+        data_folder="samples",
+        eval_script="eval_keyframes.py",
+        visualize_script="eval/visualize/viz_medoids.py",
+        out_base="outputs_eval"
+    )
+    #main()
