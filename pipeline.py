@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Tuple, Optional
 
 import cv2
 import numpy as np
+import torch
 from tqdm import tqdm
 
 # --- Registries (auto-register built-ins via package __init__) ---
@@ -39,7 +40,7 @@ from src.keyframe.medoid_selector import (
     Keyframe as KF,
 )
 
-from obejctfree.get_objects import orch
+from objectfree.inference_dino import LoadDetector
 
 
 # ------------------------------
@@ -256,6 +257,17 @@ def build_argparser() -> argparse.ArgumentParser:
     # Keyframe export
     ap.add_argument("--key_jpeg_quality", type=int, default=95,
                     help="JPEG quality for exported keyframe images.")
+    
+    # Object detection (optional)
+    ap.add_argument("--run_object_detection", action="store_true",
+                    help="Run object detection on extracted keyframes.")
+    ap.add_argument("--detection_config", type=str, default="objectfree/config.yaml",
+                    help="Path to object detection config file (YAML).")
+    ap.add_argument("--detection_checkpoint", type=str, default="./Grounded-SAM-2/checkpoints/sam2.1_hiera_tiny.pt",
+                    help="Path to SAM2 checkpoint.")
+    ap.add_argument("--detection_device", type=str, default=None,
+                    help="Device for object detection ('cuda'/'cpu'). Default: same as distance_device.")
+    
     return ap
 
 
@@ -377,7 +389,48 @@ def main():
         jpeg_quality=args.key_jpeg_quality,
     )
 
+    # Run object detection on keyframes (optional)
+    detection_results = None
+    if args.run_object_detection:
+        print("\n" + "="*60)
+        print("Running object detection on keyframes...")
+        print("="*60)
+        
+        # Determine device for object detection
+        detection_device_str = args.detection_device or args.distance_device or "cuda"
+        detection_device = torch.device(detection_device_str if torch.cuda.is_available() else "cpu")
+        
+        # Create output directory for detection results
+        detection_out_dir = os.path.join(args.out_dir, "object_detections")
+        ensure_dir(detection_out_dir)
+        
+        try:
+            # Initialize detector
+            detector = LoadDetector(
+                config_path=args.detection_config,
+                checkpoint_path=args.detection_checkpoint,
+                image_path=None,  # Will be set in run_inference
+                device=detection_device,
+                batch_size=1,
+                output_dir=detection_out_dir
+            )
+            
+            # Run inference on keyframes folder
+            detection_results = detector.run_inference(
+                keyframes_folder=key_dir,
+                output_dir=detection_out_dir
+            )
+            
+            print(f"\n[DONE] Object detection completed!")
+            print(f"  • Detection results: {detection_out_dir}/detection_results.json")
+            
+        except Exception as e:
+            print(f"[WARN] Object detection failed: {e}")
+            import traceback
+            traceback.print_exc()
+
     # Summary
+    print("\n" + "="*60)
     print(f"[DONE] Scenes: {len(scenes)} | Keyframes: {len(keyframes)}")
     print(f"  • Scenes JSON : {os.path.join(args.out_dir, 'scenes.json')}")
     print(f"  • Scenes CSV  : {os.path.join(args.out_dir, 'scenes.csv')}")
@@ -385,6 +438,9 @@ def main():
     if args.export_preview:
         print(f"  • Scene previews: {preview_dir}")
     print(f"  • Keyframe images: {key_dir}")
+    if args.run_object_detection and detection_results:
+        print(f"  • Object detections: {os.path.join(args.out_dir, 'object_detections')}")
+    print("="*60)
 
 
 if __name__ == "__main__":
@@ -412,4 +468,18 @@ python pipeline.py \
   --keyframes_per_scene 2 --nms_radius 4 \
   --resize_w 320 --resize_h 180 \
   --out_dir outputs/run_tv2_dists
+
+# 3) With Object Detection
+python pipeline.py \
+  --video samples/Sakuga/10736.mp4 \
+  --backend pyscenedetect --threshold 27 \
+  --distance_backend lpips --lpips_net alex \
+  --sample_stride 10 --max_frames_per_scene 30 \
+  --keyframes_per_scene 1 --nms_radius 3 \
+  --resize_w 320 --resize_h 180 \
+  --out_dir outputs/run_with_detection \
+  --export_preview \
+  --run_object_detection \
+  --detection_config objectfree/config.yaml \
+  --detection_checkpoint ./Grounded-SAM-2/checkpoints/sam2.1_hiera_tiny.pt
 """

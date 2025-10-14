@@ -1,0 +1,42 @@
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+======================================================================
+STORY COHERENCE EVALUATION TEST
+======================================================================
+
+Using device: cuda
+
+Initializing Story Coherence Evaluator...
+[StoryCoherence] Loading models on cuda...
+  ✓ BLIP model loaded
+  ✓ Sentence embedding model loaded
+
+======================================================================
+Detection JSON: /home/serverai/ltdoanh/LayoutGeneration/outputs_detection/6261_keyframes_detections/detection_results.json
+Keyframes folder: /home/serverai/ltdoanh/LayoutGeneration/samples/keyframe4check/6261_keyframes
+Output: /home/serverai/ltdoanh/LayoutGeneration/outputs_story_eval/6261_test
+======================================================================
+
+
+======================================================================
+[Batch Evaluation] Processing 15 images
+  Detection results: /home/serverai/ltdoanh/LayoutGeneration/outputs_detection/6261_keyframes_detections/detection_results.json
+  Keyframes folder: /home/serverai/ltdoanh/LayoutGeneration/samples/keyframe4check/6261_keyframes
+======================================================================
+Found 15 keyframe images in folder
+
+[Processing] 0000_clip01_frame088_6261_1.jpg
+  Generating caption for full image...
+    → Full image caption: "a close up of a person with a surprised look on their face"
+  Crop 0: similarity=1.000 | "a close up of a person with a surprised look on their face"
+Traceback (most recent call last):
+  File "/home/serverai/ltdoanh/LayoutGeneration/test_story_coherence.py", line 75, in <module>
+    main()
+  File "/home/serverai/ltdoanh/LayoutGeneration/test_story_coherence.py", line 47, in main
+    results = evaluator.evaluate_batch(
+  File "/home/serverai/ltdoanh/LayoutGeneration/objectfree/story_coherence_evaluator.py", line 283, in evaluate_batch
+    result = self.evaluate_single_image(
+  File "/home/serverai/ltdoanh/LayoutGeneration/objectfree/story_coherence_evaluator.py", line 194, in evaluate_single_image
+    cropped.save(crop_save_path, quality=95)
+  File "/srv/conda/envs/serverai/sam/lib/python3.10/site-packages/PIL/Image.py", line 2583, in save
+    fp = builtins.open(filename, "w+b")
+FileNotFoundError: [Errno 2] No such file or directory: '/home/serverai/ltdoanh/LayoutGeneration/outputs_story_eval/6261_test/0000_clip01_frame088_6261_1_crop_0.jpg'
