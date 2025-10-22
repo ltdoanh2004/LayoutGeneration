@@ -1,3 +1,8 @@
 outputs/*
 samples/*
 __pycache__/
+samples
+outputs
+src/models/
+.env
+objectfree

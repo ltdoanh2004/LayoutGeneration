@@ -5,6 +5,7 @@
 Unified Scene→Keyframe Pipeline
 - Scene detection via pluggable backends (registry): pyscenedetect, transnetv2, ...
 - Keyframe selection via pluggable distance metrics (registry): lpips, dists, ...
+- Post-processing: Filter adjacent keyframes with high cosine similarity
 - Outputs:
     * scenes.json / scenes.csv
     * keyframes.csv
@@ -186,6 +187,116 @@ def normalize_and_merge_scenes(
 
 
 # ------------------------------
+# Keyframe post-processing (cosine similarity filtering)
+# ------------------------------
+def extract_frame_features(
+    video_path: str,
+    frame_indices: List[int],
+    resize_to: Optional[Tuple[int, int]] = None,
+) -> np.ndarray:
+    """
+    Extract simple features (mean color histogram) for each frame.
+    Returns shape: (num_frames, feature_dim)
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open video: {video_path}")
+    
+    features = []
+    for frame_idx in frame_indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            # Use zero feature as fallback
+            features.append(np.zeros(256))
+            continue
+        
+        # Simple feature: histogram of HSV
+        if resize_to and resize_to[0] > 0 and resize_to[1] > 0:
+            frame = cv2.resize(frame, resize_to)
+        
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hist = cv2.calcHist([hsv], [0, 1], None, [16, 16], [0, 180, 0, 256])
+        hist = cv2.normalize(hist, hist).flatten()
+        features.append(hist)
+    
+    cap.release()
+    return np.array(features, dtype=np.float32)
+
+
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Compute cosine similarity between two vectors."""
+    a_norm = np.linalg.norm(a)
+    b_norm = np.linalg.norm(b)
+    if a_norm < 1e-6 or b_norm < 1e-6:
+        return 0.0
+    return float(np.dot(a, b) / (a_norm * b_norm))
+
+
+def filter_keyframes_by_cosine_similarity(
+    keyframes: List[KF],
+    video_path: str,
+    similarity_threshold: float = 0.9,
+    resize_to: Optional[Tuple[int, int]] = None,
+) -> List[KF]:
+    """
+    Filter adjacent keyframes that have high cosine similarity.
+    Keep the one with better score (lower is better for distance metrics).
+    
+    Args:
+        keyframes: List of keyframes to filter
+        video_path: Path to video
+        similarity_threshold: Threshold for cosine similarity (0-1). Pairs above this are considered duplicates.
+        resize_to: Resize frame before computing features
+    
+    Returns:
+        Filtered list of keyframes with similar adjacent frames removed
+    """
+    if len(keyframes) <= 1:
+        return keyframes
+    
+    print(f"[Post-process] Filtering keyframes with cosine similarity (threshold={similarity_threshold})...")
+    
+    # Extract features for all keyframes
+    frame_indices = [kf.frame_idx for kf in keyframes]
+    features = extract_frame_features(video_path, frame_indices, resize_to)
+    
+    # Greedy filtering: iterate and mark similar pairs
+    keep_mask = [True] * len(keyframes)
+    
+    for i in range(len(keyframes) - 1):
+        if not keep_mask[i]:
+            continue
+        
+        # Compare with next keyframes in same scene
+        for j in range(i + 1, len(keyframes)):
+            if not keep_mask[j]:
+                continue
+            
+            # Only compare keyframes in the same scene
+            if keyframes[i].scene_id != keyframes[j].scene_id:
+                break
+            
+            sim = cosine_similarity(features[i], features[j])
+            
+            if sim >= similarity_threshold:
+                # Mark the one with worse score for removal
+                if keyframes[i].score > keyframes[j].score:
+                    keep_mask[i] = False
+                    break
+                else:
+                    keep_mask[j] = False
+    
+    filtered = [kf for kf, keep in zip(keyframes, keep_mask) if keep]
+    removed_count = len(keyframes) - len(filtered)
+    
+    if removed_count > 0:
+        print(f"[Post-process] Removed {removed_count} duplicate keyframes (kept {len(filtered)})")
+    
+    return filtered
+
+
+# ------------------------------
 # Argparse
 # ------------------------------
 def build_argparser() -> argparse.ArgumentParser:
@@ -252,6 +363,12 @@ def build_argparser() -> argparse.ArgumentParser:
                     help="Keyframe selection strategy.")
     ap.add_argument("--random_seed", type=int, default=None,
                     help="Random seed for reproducibility (only used with random selector).")
+
+    # Keyframe post-processing (cosine similarity filtering)
+    ap.add_argument("--filter_duplicate_keyframes", action="store_true",
+                    help="Enable post-processing to remove adjacent keyframes with high cosine similarity.")
+    ap.add_argument("--cosine_similarity_threshold", type=float, default=0.9,
+                    help="Cosine similarity threshold for duplicate filtering (0-1, default 0.9).")
 
     # Keyframe export
     ap.add_argument("--key_jpeg_quality", type=int, default=95,
@@ -361,6 +478,15 @@ def main():
         )
         keyframes.extend(kfs)
 
+    # POST-PROCESSING: Filter duplicate keyframes by cosine similarity
+    if args.filter_duplicate_keyframes and len(keyframes) > 1:
+        keyframes = filter_keyframes_by_cosine_similarity(
+            keyframes=keyframes,
+            video_path=args.video,
+            similarity_threshold=args.cosine_similarity_threshold,
+            resize_to=resize_to,
+        )
+
     # Save keyframes CSV
     key_rows: List[Dict[str, Any]] = []
     for kf in keyframes:
@@ -393,78 +519,48 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+
 """
-# 1) PySceneDetect + LPIPS(Alex)
-python pipeline.py \
-  --video samples/Sakuga/10736.mp4 \
-  --backend pyscenedetect --threshold 27 \
+EXAMPLES:
+
+# 1) TransNetV2 + LPIPS (with duplicate keyframe filtering)
+python pipeline_new.py \
+  --video samples/10736.mp4 \
+  --backend transnetv2 \
+  --model_dir src/models/TransNetV2 \
+  --prob_threshold 0.5 \
   --distance_backend lpips --lpips_net alex \
-  --sample_stride 3 --max_frames_per_scene 100 \
-  --keyframes_per_scene 1 --nms_radius 3 \
+  --sample_stride 8 --max_frames_per_scene 40 \
+  --keyframes_per_scene 2 --nms_radius 4 \
   --resize_w 320 --resize_h 180 \
-  --out_dir outputs/run_psd_lpips \
-  --export_preview
+  --out_dir outputs/run_tv2_lpips_filtered \
+  --filter_duplicate_keyframes \
+  --cosine_similarity_threshold 0.9
 
-# 1) PySceneDetect + DISTS(Alex)
-python pipeline.py \
-  --video samples/Sakuga/10736.mp4 \
-  --backend pyscenedetect --threshold 27 \
-  --distance_backend dists --lpips_net alex \
-  --sample_stride 3 --max_frames_per_scene 100 \
-  --keyframes_per_scene 1 --nms_radius 3 \
-  --resize_w 320 --resize_h 180 \
-  --out_dir outputs/run_psd_dists \
-  --export_preview
-
-# 2) TransNetV2 (PyTorch) + DISTS
-python pipeline.py \
-  --video samples/Sakuga/10736.mp4 \
-  --backend transnetv2  \
+# 2) TransNetV2 + DISTS (with duplicate keyframe filtering)
+python pipeline_new.py \
+  --video samples/10736.mp4 \
+  --backend transnetv2 \
   --model_dir src/models/TransNetV2 \
   --prob_threshold 0.5 \
   --distance_backend dists --dists_as_distance 1 \
   --sample_stride 8 --max_frames_per_scene 40 \
   --keyframes_per_scene 2 --nms_radius 4 \
   --resize_w 320 --resize_h 180 \
-  --out_dir outputs/run_tv2_dists
+  --out_dir outputs/run_tv2_dists_filtered \
+  --filter_duplicate_keyframes \
+  --cosine_similarity_threshold 0.92
 
-python pipeline.py \
-  --video samples/Sakuga/10736.mp4 \
+# 3) PySceneDetect + LPIPS (with duplicate keyframe filtering)
+python pipeline_new.py \
+  --video samples/10736.mp4 \
   --backend pyscenedetect --threshold 27 \
   --distance_backend lpips --lpips_net alex \
   --sample_stride 3 --max_frames_per_scene 100 \
   --keyframes_per_scene 1 --nms_radius 3 \
   --resize_w 320 --resize_h 180 \
-  --out_dir outputs/run_psd_lpips \
-  --export_preview \
-  --keyframe_selector random --random_seed 42
+  --out_dir outputs/run_psd_lpips_filtered \
+  --filter_duplicate_keyframes \
+  --cosine_similarity_threshold 0.88 \
+  --export_preview
 """
-
-## transnet v2 + lpips 
-## transnet v2 + dtits
-##
-""" 
-# 1) TransNetV2 (PyTorch) + LPIPS(Alex)
-python pipeline.py \
-  --video samples/Sakuga/10736.mp4 \
-  --backend transnetv2  \
-  --model_dir src/models/TransNetV2 \
-  --prob_threshold 0.5 \
-  --distance_backend lpips --lpips_net alex \
-  --sample_stride 8 --max_frames_per_scene 40 \
-  --keyframes_per_scene 2 --nms_radius 4 \
-  --resize_w 320 --resize_h 180 \
-  --out_dir outputs/run_tv2_lpips
-
-# 2) TransNetV2 (PyTorch) + DISTS
-python pipeline.py \
-  --video samples/Sakuga/10736.mp4 \
-  --backend transnetv2  \
-  --model_dir src/models/TransNetV2 \
-  --prob_threshold 0.5 \
-  --distance_backend dists --dists_as_distance 1 \
-  --sample_stride 8 --max_frames_per_scene 40 \
-  --keyframes_per_scene 2 --nms_radius 4 \
-  --resize_w 320 --resize_h 180 \
-  --out_dir outputs/run_tv2_dists """
