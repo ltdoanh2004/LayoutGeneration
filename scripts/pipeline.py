@@ -446,8 +446,8 @@ python pipeline.py \
 ##
 """ 
 # 1) TransNetV2 (PyTorch) + LPIPS(Alex)
-python pipeline.py \
-  --video samples/Sakuga/10736.mp4 \
+python -m scripts.pipeline \
+  --video data/samples/6261.mp4 \
   --backend transnetv2  \
   --model_dir src/models/TransNetV2 \
   --prob_threshold 0.5 \
@@ -458,8 +458,8 @@ python pipeline.py \
   --out_dir outputs/run_tv2_lpips
 
 # 2) TransNetV2 (PyTorch) + DISTS
-python pipeline.py \
-  --video samples/Sakuga/10736.mp4 \
+python -m scripts.pipeline \
+  --video data/samples/6261.mp4 \
   --backend transnetv2  \
   --model_dir src/models/TransNetV2 \
   --prob_threshold 0.5 \
@@ -467,4 +467,4 @@ python pipeline.py \
   --sample_stride 8 --max_frames_per_scene 40 \
   --keyframes_per_scene 2 --nms_radius 4 \
   --resize_w 320 --resize_h 180 \
-  --out_dir outputs/run_tv2_dists """
+  --out_dir data/outputs/run_tv2_dists """
