@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 """
-Complete Pipeline: Object Detection → Story Coherence → Comprehensive Evaluation
-Input: keyframes folder → Output: all evaluation results
+Complete Pipeline: Object Detection -> Story Coherence -> Comprehensive Evaluation
+Input: keyframes folder -> Output: all evaluation results
 """
 import os
 import sys
@@ -9,9 +8,49 @@ import torch
 import json
 import glob
 import argparse
+import numpy as np
 from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
+import logging
+import sys
+
+def convert_numpy_types(obj):
+    """
+    Recursively convert numpy types to Python native types for JSON serialization.
+    """
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, (np.integer, np.int_, np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float16, np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_numpy_types(item) for item in obj]
+    else:
+        return obj
+
+# Add parent directory to sys.path for module imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, ".."))
+sys.path.insert(0, current_dir)
+sys.path.insert(0, parent_dir)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('./objectfree/eval_pipeline.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+
 
 # Import các modules
 from inference_dino import LoadDetector
@@ -19,29 +58,29 @@ from story_coherence_evaluator import StoryCoherenceEvaluator
 from eval_comprehensive import ImageRegionAnalyzer
 
 
-class CompletePipeline:
-    """Complete pipeline combining all evaluation methods"""
+class GetMeanRegion:
+    """Complete get mean region for layout generation"""
     
-    def __init__(self, device="cuda", verbose=False):
+    def __init__(self, device="cuda"):
         self.device = device if torch.cuda.is_available() and device == "cuda" else "cpu"
-        self.verbose = verbose
-        if self.verbose:
-            print(f"Using device: {self.device}")
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.info(f"Using device: {self.device}")
         
         # Initialize evaluators
         self.object_detector = None
         self.story_evaluator = None
         self.comprehensive_analyzer = None
     
-    def initialize_detectors(self):
+    def initialize_detectors(self, config_path="./objectfree/config.yaml"):
         """Initialize all detectors"""
+        self.logger.info("Initializing detectors...")
         self.object_detector = LoadDetector(
-            config_path="objectfree/config.yaml",
-            checkpoint_path="/home/serverai/ltdoanh/LayoutGeneration/objectfree/Grounded-SAM-2/checkpoints/sam2.1_hiera_tiny.pt",
+            config_path=config_path,
+            checkpoint_path="./objectfree/Grounded-SAM-2/checkpoints/sam2.1_hiera_tiny.pt",
             image_path=None,
             device=self.device,
             batch_size=1,
-            output_dir=None  # Will be set before use
+            output_dir=None 
         )
         
         self.story_evaluator = StoryCoherenceEvaluator(
@@ -49,29 +88,24 @@ class CompletePipeline:
             device=self.device
         )
         
-        self.comprehensive_analyzer = ImageRegionAnalyzer  # Class, not instance
-    
+        self.comprehensive_analyzer = ImageRegionAnalyzer 
+        self.logger.info("All detectors initialized successfully")
+
     def run_object_detection(self, keyframes_folder, output_dir):
         """Step 1: Run object detection"""
-        if self.verbose:
-            print("STEP 1: OBJECT DETECTION")
-            print(f"{'='*70}")
+        self.logger.info(f"Using keyframes folder: {keyframes_folder}")
+        self.logger.info(f"Using output directory: {output_dir}")
         
 
         results = self.object_detector.run_inference(
             keyframes_folder=keyframes_folder,
             output_dir=output_dir
         )
-        if self.verbose:
-            print(f"Object detection completed: {len(results)} images processed")
         return True
  
     
     def run_story_coherence(self, detection_json, keyframes_folder, output_dir):
         """Step 2: Run story coherence evaluation"""
-        if self.verbose:
-            print("STEP 2: STORY COHERENCE EVALUATION")
-            print(f"{'='*70}")
     
         results = self.story_evaluator.evaluate_batch(
             detection_results_json=detection_json,
@@ -79,27 +113,17 @@ class CompletePipeline:
             output_dir=output_dir,
             save_crops=True
         )
-        if self.verbose:
-            print(f"Story coherence completed: {len(results)} images evaluated")
         return results
     
     def run_comprehensive_eval(self, keyframes_folder, output_dir):
         """Step 3: Run comprehensive evaluation (entropy, edge, color)"""
-        if self.verbose:
-            print("STEP 3: COMPREHENSIVE EVALUATION")
-            print(f"{'='*70}")
-        
         # Get all images
         image_paths = sorted(glob.glob(os.path.join(keyframes_folder, "*.jpg")))
         image_paths = [p for p in image_paths if "preview" not in os.path.basename(p).lower()]
         
         if len(image_paths) == 0:
-            if self.verbose:
-                print(f"✗ No images found in {keyframes_folder}")
+            print(f"No images found in {keyframes_folder}")
             return []
-        
-        if self.verbose:
-            print(f"Processing {len(image_paths)} images...")
         
         all_stats = []
         for image_path in image_paths:  # Disabled tqdm for cleaner output
@@ -120,21 +144,16 @@ class CompletePipeline:
         # Save results
         summary_path = os.path.join(output_dir, 'comprehensive_summary.json')
         with open(summary_path, 'w') as f:
-            json.dump(all_stats, f, indent=2)
+            json.dump(convert_numpy_types(all_stats), f, indent=2)
         
         df = pd.DataFrame(all_stats)
         csv_path = os.path.join(output_dir, 'comprehensive_summary.csv')
         df.to_csv(csv_path, index=False)
-        
-        if self.verbose:
-            print(f"Comprehensive evaluation completed: {len(all_stats)} images processed")
+
         return all_stats
     
     def create_final_report(self, folder_name, detection_results, story_results, comprehensive_results, output_dir):
         """Create final combined report"""
-        if self.verbose:
-            print("CREATING FINAL REPORT")
-            print(f"{'='*70}")
         
         # Combine all results
         final_report = {
@@ -165,21 +184,13 @@ class CompletePipeline:
         # Save final report
         report_path = os.path.join(output_dir, 'final_report.json')
         with open(report_path, 'w') as f:
-            json.dump(final_report, f, indent=2)
-        
-        if self.verbose:
-            print(f" Final report saved: {report_path}")
+            json.dump(convert_numpy_types(final_report), f, indent=2)
         return final_report
     
     def process_single_folder(self, keyframes_folder, output_base="/home/serverai/ltdoanh/LayoutGeneration/outputs_complete"):
         """Process a single keyframes folder through all steps"""
         folder_name = os.path.basename(keyframes_folder)
-        
-        if self.verbose:
-            print(f"\n{'='*80}")
-            print(f"PROCESSING FOLDER: {folder_name}")
-            print(f"{'='*80}")
-        
+ 
         # Create output directory
         output_dir = os.path.join(output_base, folder_name)
         os.makedirs(output_dir, exist_ok=True)
@@ -227,58 +238,19 @@ class CompletePipeline:
 
 def main():
     parser = argparse.ArgumentParser(description="Complete Pipeline for Layout Generation Evaluation")
-    parser.add_argument('--all', action='store_true', help='Process all keyframe folders')
+    parser.add_argument('--input', type=str, required=True, help='Path to keyframes folder to process')
     parser.add_argument('--output', type=str, default='/home/serverai/ltdoanh/LayoutGeneration/outputs_complete', help='Base output directory')
     parser.add_argument('--device', type=str, default='cuda', choices=['cuda', 'cpu'], help='Device to use')
-    parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
-    parser.add_argument('folder', nargs='?', help='Single folder to process (if not --all)')
+    parser.add_argument('--config', type=str, default='./objectfree/config.yaml', help='Path to config file')
     
     args = parser.parse_args()
     
     # Initialize pipeline
-    pipeline = CompletePipeline(device=args.device, verbose=args.verbose)
-    pipeline.initialize_detectors()
-    
-    if args.all:
-        # Process all folders
-        base_folder = "/home/serverai/ltdoanh/LayoutGeneration/samples/keyframe4check"
-        keyframe_folders = []
-        
-        for item in sorted(os.listdir(base_folder)):
-            item_path = os.path.join(base_folder, item)
-            if os.path.isdir(item_path) and item.endswith("_keyframes"):
-                keyframe_folders.append(item_path)
-        
-        if args.verbose:
-            print(f"\nFound {len(keyframe_folders)} folders to process:")
-            for i, folder in enumerate(keyframe_folders):
-                print(f"  {i+1}. {os.path.basename(folder)}")
-        
-        # Process all folders
-        all_results = []
-        for folder_path in keyframe_folders:
-            result = pipeline.process_single_folder(folder_path, args.output)
-            all_results.append(result)
-        
-        if args.verbose:
-            total_story = sum(r['story_results_count'] for r in all_results)
-            total_comprehensive = sum(r['comprehensive_results_count'] for r in all_results)
-            print(f"\nCompleted processing {len(all_results)} folders")
-            print(f"Total story evaluations: {total_story}")
-            print(f"Total comprehensive evaluations: {total_comprehensive}")
-    else:
-        # Process single folder
-        if not args.folder:
-            parser.error("Must specify --all or provide a folder path")
-        keyframes_folder = args.folder
-        if not os.path.exists(keyframes_folder):
-            print(f"[ERROR] Folder not found: {keyframes_folder}")
-            return
-        
-        result = pipeline.process_single_folder(keyframes_folder, args.output)
-        if args.verbose:
-            print(f"Processed folder: {result['folder_name']}")
+    pipeline = GetMeanRegion(device=args.device)
+    pipeline.initialize_detectors(config_path=args.config)
+    result = pipeline.process_single_folder(args.input, args.output)
 
+    logging.info(f"Processing completed for folder: {result['folder_name']} and save in: {result['output_dir']}")
 
 if __name__ == "__main__":
     main()

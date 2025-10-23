@@ -1,9 +1,9 @@
-
-
 config:
   TEXT_PROMPT: "all objects"
   SAM2_CHECKPOINT: "/home/serverai/ltdoanh/LayoutGeneration/objectfree/Grounded-SAM-2/checkpoints/sam2.1_hiera_tiny.pt"
-  SAM2_MODEL_CONFIG: "configs/sam2.1/sam2.1_hiera_t.yaml"
+  SAM2_MODEL_CONFIG: "/configs/sam2.1/sam2.1_hiera_t.yaml"
   GROUNDING_DINO_MODEL: "IDEA-Research/grounding-dino-tiny"
-  BOX_THRESHOLD: 0.05
+  BOX_THRESHOLD: 0.02
   TEXT_THRESHOLD: 0.02
+  NMS_THRESHOLD: 0.5
+  USE_WBF: false  # Set to true để dùng WBF thay vì NMS

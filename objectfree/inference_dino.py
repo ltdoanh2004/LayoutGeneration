@@ -1,5 +1,4 @@
 import sys
-
 import glob
 import os
 import cv2
@@ -13,11 +12,19 @@ from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
 import yaml
 import torch.nn as nn
 import json
+import logging
 
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.append(parent_dir)
+# Add parent directory to sys.path for module imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, ".."))
+sys.path.insert(0, current_dir)
+sys.path.insert(0, parent_dir)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+logger = logging.getLogger(__name__)
+
+# Import PostProcessor for filtering methods
+from post_processing import PostProcessor
 
 
 class LoadDetector(nn.Module):
@@ -29,31 +36,18 @@ class LoadDetector(nn.Module):
         self.device = device
         self.batch_size = batch_size
         self.output_dir = output_dir
-        os.makedirs(self.output_dir, exist_ok=True)
-        
-        # Note: build_sam2 will be called later with correct config from Read_config
+        if self.output_dir is not None:
+            os.makedirs(self.output_dir, exist_ok=True)
         self.predictor = None
+        # Initialize PostProcessor for filtering methods
+        self.post_processor = PostProcessor(device=self.device)
 
     def load_batch_image(self):
-        """
-        Return a list of PIL.Image objects of length self.batch_size.
-        - Accepts self.image_path as a single path (str) or an iterable of paths.
-        - Raises FileNotFoundError if any referenced file is missing.
-        - If fewer paths than batch_size, repeats the last image to fill the batch.
-        """
-        # normalize to list of paths
-        if isinstance(self.image_path, str):
-            paths = [self.image_path]
-        else:
-            paths = list(self.image_path)
-
-        if len(paths) == 0:
-            raise ValueError("No image paths provided in self.image_path")
+        """Load images from paths"""
+        paths = list(self.image_path)
 
         images = []
         for p in paths[: self.batch_size]:
-            if not os.path.exists(p):
-                raise FileNotFoundError(f"Image file not found: {p}")
             images.append(Image.open(p).convert("RGB"))
         return images
     
@@ -66,45 +60,42 @@ class LoadDetector(nn.Module):
         self.grounding_dino_model = config['config']['GROUNDING_DINO_MODEL']
         self.box_threshold = config['config']['BOX_THRESHOLD']
         self.text_threshold = config['config']['TEXT_THRESHOLD']
+        self.nms_threshold = config['config'].get('NMS_THRESHOLD', 0.5)
+        self.use_wbf = config['config'].get('USE_WBF', False)
         return self.text_prompt, self.sam2_checkpoint, self.sam2_model_config, self.grounding_dino_model, self.box_threshold, self.text_threshold
     
     def load_grounding_dino(self):
-        """Load the Grounding DINO and SAM2 models."""
-        # Load SAM2 with correct argument order: config_file, ckpt_path, device
-        print(f"  Loading SAM2 from: {self.sam2_checkpoint}")
+        """Load SAM2 and Grounding DINO models"""
+        logger.info(f"Loading SAM2 from: {self.sam2_checkpoint}")
         sam2_model = build_sam2(self.sam2_model_config, self.sam2_checkpoint, device=self.device)
         self.predictor = SAM2ImagePredictor(sam2_model)
-        print("  SAM2 loaded")
-
-        # Load Grounding DINO from HuggingFace
-        print(f"  Loading Grounding DINO from HuggingFace: {self.grounding_dino_model}")
+        logger.info("SAM2 loaded")
+        logger.info(f"Loading Grounding DINO: {self.grounding_dino_model}")
         processor = AutoProcessor.from_pretrained(self.grounding_dino_model)
         grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(self.grounding_dino_model).to(self.device)
-        print("  Grounding DINO loaded")
+        logger.info("Grounding DINO loaded")
         return processor, grounding_model
  
     def _bboxes_to_list(self, boxes_xyxy, scores):
-        """
-        Convert numpy arrays to list of dicts: {'bbox': [x1,y1,x2,y2], 'score': float}
-        """
-        results = []
+        """Convert numpy arrays to list of dicts"""
+        results_bbox = []
         for (x1, y1, x2, y2), s in zip(boxes_xyxy.tolist(), scores.tolist()):
-            results.append({"bbox": [float(x1), float(y1), float(x2), float(y2)], "score": float(s)})
-        return results
+            results_bbox.append({"bbox": [float(x1), float(y1), float(x2), float(y2)], "score": float(s)})
+        return results_bbox
 
     def forward(self):
         # Load config
         self.text_prompt, self.sam2_checkpoint, self.sam2_model_config, self.grounding_dino_model, self.box_threshold, self.text_threshold = self.Read_config()
-        print("Config loaded")
+        logger.info("Config loaded")
 
         # Load models
         processor, grounding_model = self.load_grounding_dino()
 
         # Load images
         images = self.load_batch_image()
-        print(f"Loaded {len(images)} images for detection")
+        logger.info(f"Loaded {len(images)} images for detection")
 
-        all_results = []  # collect results for JSON
+        all_results = []
 
         for i, image in enumerate(images):
             image_np = np.array(image)
@@ -116,116 +107,107 @@ class LoadDetector(nn.Module):
             with torch.no_grad():
                 outputs = grounding_model(**inputs)
 
-            # Post-process with new API
+            # Post-process
             results = processor.post_process_grounded_object_detection(
                 outputs,
                 inputs.input_ids,
                 threshold=self.box_threshold,
-                target_sizes=[image.size[::-1]]  # (height, width)
+                target_sizes=[image.size[::-1]]
             )
             
-            # Extract boxes, labels, scores
             boxes_filt = results[0]["boxes"].cpu().numpy()
             labels = results[0]["labels"]
             logits_filt = results[0]["scores"].cpu().numpy()
 
             if len(boxes_filt) == 0:
-                print(f"No objects detected in image {i}")
-                # still record empty result
+                logger.info(f"No objects detected in image {i}")
                 all_results.append({
                     "image_index": i,
                     "image_size": {"width": image.width, "height": image.height},
-                    "detections": []
+                    "detections": [],
+                    "filter_method": "none"
                 })
                 continue
 
-            # Boxes are already in xyxy format from post_process
+            # Apply filtering: NMS or WBF
+            filter_method = "none"
+            if self.use_wbf:
+                logger.debug(f"Applying WBF (iou_threshold={self.nms_threshold})...")
+                boxes_filt, logits_filt = self.post_processor._apply_wbf(boxes_filt, logits_filt, self.nms_threshold)
+                filter_method = "wbf"
+            else:
+                logger.debug(f"Applying NMS (iou_threshold={self.nms_threshold})...")
+                keep_indices = self.post_processor._apply_nms(boxes_filt, logits_filt, image, self.nms_threshold)
+                boxes_filt = boxes_filt[keep_indices]
+                logits_filt = logits_filt[keep_indices]
+                filter_method = "nms"
+            
+            logger.info(f"Image {i}: Detected {len(boxes_filt)} objects after {filter_method.upper()}")
+
             boxes_xyxy = boxes_filt
 
-            # Prepare detections structure for supervision and JSON
+            # Create detections
             detections = sv.Detections(
                 xyxy=boxes_xyxy,
                 confidence=logits_filt,
                 class_id=np.zeros(len(boxes_xyxy), dtype=int),
             )
 
-            # Annotate images - use latest supervision API
+            # Annotate
             box_annotator = sv.BoxAnnotator(thickness=2)
             annotated_frame = box_annotator.annotate(scene=img_cv.copy(), detections=detections)
 
-            # Prepare label strings: use detected labels
-            label_list = [f"{label} {s:.2f}" for label, s in zip(labels, logits_filt)]
+            label_list = [f"{label} {s:.2f}" for label, s in zip(labels[:len(logits_filt)], logits_filt)]
             label_annotator = sv.LabelAnnotator(text_scale=0.5, text_thickness=1)
             annotated_image = label_annotator.annotate(annotated_frame, detections=detections, labels=label_list)
 
-            # Save annotated image and boxes-only image
+            # Save
             base_name = f"image_{i}"
             annotated_path = os.path.join(self.output_dir, f"{base_name}_annotated.jpg")
             cv2.imwrite(annotated_path, annotated_image)
             boxes_only = box_annotator.annotate(scene=img_cv.copy(), detections=detections)
             boxes_path = os.path.join(self.output_dir, f"{base_name}_boxes.jpg")
             cv2.imwrite(boxes_path, boxes_only)
-            print(f"Saved: {annotated_path}, {boxes_path}")
+            logger.debug(f"Saved: {annotated_path}, {boxes_path}")
 
-            # Collect JSON-friendly detection records
             det_list = self._bboxes_to_list(boxes_xyxy, logits_filt)
             all_results.append({
                 "image_index": i,
                 "image_size": {"width": image.width, "height": image.height},
                 "annotated_image": os.path.abspath(annotated_path),
                 "boxes_image": os.path.abspath(boxes_path),
-                "detections": det_list
+                "detections": det_list,
+                "filter_method": filter_method,
+                "num_detections": len(det_list)
             })
 
-        # Save all detections to JSON
+        # Save JSON
         json_path = os.path.join(self.output_dir, "detection_results.json")
         with open(json_path, "w", encoding="utf-8") as jf:
             json.dump({"results": all_results, "text_prompt": self.text_prompt}, jf, ensure_ascii=False, indent=2)
 
-        print(f"All detection results saved to: {json_path}")
+        logger.info(f"Detection results saved to: {json_path}")
         return all_results
     
-  
     def run_inference(self, keyframes_folder, output_dir):
-        """
-        Run the object detection pipeline on images in the specified folder.
-        """
+        """Run inference on all keyframes in folder"""
         image_paths = sorted(glob.glob(os.path.join(keyframes_folder, "*.jpg")))
         image_paths = [p for p in image_paths if "preview" not in os.path.basename(p).lower()]
         
         if len(image_paths) == 0:
-            print(f"No images found in {keyframes_folder}")
+            logger.warning(f"No images found in {keyframes_folder}")
             return
         
-        print(f"Found {len(image_paths)} keyframes to process:")
-        for i, p in enumerate(image_paths[:5]):  # show first 5
-            print(f"  {i}: {os.path.basename(p)}")
-        if len(image_paths) > 5:
-            print(f"  ... and {len(image_paths) - 5} more")
+        logger.info(f"Found {len(image_paths)} keyframes")
         
-        # Tạo output directory
         os.makedirs(output_dir, exist_ok=True)
         
-        # Cập nhật đường dẫn ảnh và output directory
         self.image_path = image_paths
         self.output_dir = output_dir
-        self.batch_size = len(image_paths)  # xử lý tất cả ảnh
+        self.batch_size = len(image_paths)
         
-        print("\n" + "="*60)
-        print("Starting inference...")
-        print("="*60 + "\n")
-        
+        logger.info("Starting inference...")
         results = self.forward()
         
-        print("\n" + "="*60)
-        print("Detection completed!")
-        print("="*60)
-        print(f"Total images processed: {len(results)}")
-        print(f"Results saved in: {output_dir}/")
-        print(f"JSON results: {output_dir}/detection_results.json")
-        print("\nAnnotated images:")
-        for i in range(min(3, len(results))):
-            if results[i].get("annotated_image"):
-                print(f"  - {results[i]['annotated_image']}")
-        if len(results) > 3:
-            print(f"  ... and {len(results) - 3} more")
+        logger.info(f"Detection completed: {len(results)} images processed")
+        return results
