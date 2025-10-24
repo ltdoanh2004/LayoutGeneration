@@ -195,10 +195,8 @@ class LoadDetector(nn.Module):
         image_paths = [p for p in image_paths if "preview" not in os.path.basename(p).lower()]
         
         if len(image_paths) == 0:
-            logger.warning(f"No images found in {keyframes_folder}")
             return
         
-        logger.info(f"Found {len(image_paths)} keyframes")
         
         os.makedirs(output_dir, exist_ok=True)
         
