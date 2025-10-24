@@ -18,6 +18,7 @@ import os
 import csv
 import json
 import argparse
+from datetime import datetime
 from typing import Any, Dict, List, Tuple, Optional
 
 import cv2
@@ -40,6 +41,11 @@ from src.keyframe.medoid_selector import (
 )
 
 from src.keyframe.random_selector import RandomSelector
+
+from objectfree.inference_dino import LoadDetector
+from objectfree.story_coherence_evaluator import StoryCoherenceEvaluator
+from objectfree.eval_comprehensive import ImageRegionAnalyzer
+from objectfree.eval_objectfree import CompletePipeline
 
 # ------------------------------
 # Basic I/O helpers
@@ -141,8 +147,23 @@ def export_keyframe_images(
 
 
 # ------------------------------
-# Scenes post-processing
+# Object-Free Pipeline Integration
 # ------------------------------
+def run_complete_object_free_pipeline(keyframes_folder, output_base, device="cuda", config_path="objectfree/config.yaml", checkpoint_path="./Grounded-SAM-2/checkpoints/sam2.1_hiera_tiny.pt"):
+    """Run complete object-free pipeline using CompletePipeline class"""
+    
+    # Initialize pipeline
+    pipeline = CompletePipeline(device=device, output_dir=output_base, config_path=config_path)
+    pipeline.initialize_detectors()
+    
+    # Override config and checkpoint paths
+    pipeline.object_detector.config_path = config_path
+    pipeline.object_detector.checkpoint_path = checkpoint_path
+    
+    # Process the folder
+    result = pipeline.process_single_folder(keyframes_folder, output_base)
+    
+    return result
 def normalize_and_merge_scenes(
     scenes: List[Scene],
     min_len_frames: int = 0,
@@ -256,6 +277,17 @@ def build_argparser() -> argparse.ArgumentParser:
     # Keyframe export
     ap.add_argument("--key_jpeg_quality", type=int, default=95,
                     help="JPEG quality for exported keyframe images.")
+
+    # Object-free pipeline
+    ap.add_argument("--run_object_free_pipeline", action="store_true",
+                    help="Run complete object-free evaluation pipeline after keyframe extraction.")
+    ap.add_argument("--detection_config", type=str, default=None,
+                    help="Path to Grounding DINO config file for object detection.")
+    ap.add_argument("--detection_checkpoint", type=str, default=None,
+                    help="Path to Grounding DINO checkpoint file.")
+    ap.add_argument("--detection_device", type=str, default=None,
+                    help="Device for object detection ('cuda'/'cpu').")
+
     return ap
 
 
@@ -264,7 +296,11 @@ def build_argparser() -> argparse.ArgumentParser:
 # ------------------------------
 def main():
     args = build_argparser().parse_args()
-    args.out_dir = args.out_dir + f"_{args.video.split('/')[-1].split('.')[0]}"
+    
+    # Create unique output directory with timestamp to avoid overwriting
+    video_name = args.video.split('/')[-1].split('.')[0]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    args.out_dir = f"{args.out_dir}_{video_name}_{timestamp}"
 
     # Prepare output folders
     ensure_dir(args.out_dir)
@@ -381,6 +417,41 @@ def main():
         jpeg_quality=args.key_jpeg_quality,
     )
 
+    # Run complete object-free pipeline (optional)
+    object_free_results = None
+    if args.run_object_free_pipeline:
+        print("\n" + "="*80)
+        print("RUNNING COMPLETE OBJECT-FREE PIPELINE")
+        print("="*80)
+        
+        # Determine device for object-free pipeline
+        of_device_str = args.detection_device or args.distance_device or "cuda"
+        
+        # Create base output directory for object-free results
+        of_base_dir = os.path.join(args.out_dir, "object_free_evaluation")
+        ensure_dir(of_base_dir)
+        
+        try:
+            object_free_results = run_complete_object_free_pipeline(
+                keyframes_folder=key_dir,
+                output_base=of_base_dir,
+                device=of_device_str,
+                config_path=args.detection_config,
+                checkpoint_path=args.detection_checkpoint
+            )
+            
+            if object_free_results:
+                print(f"\n[SUCCESS] Object-free pipeline completed!")
+                print(f"  • Results: {object_free_results['output_dir']}")
+                print(f"  • Final report: {os.path.join(object_free_results['output_dir'], 'final_report.json')}")
+            else:
+                print(f"[WARN] Object-free pipeline failed!")
+                
+        except Exception as e:
+            print(f"[ERROR] Object-free pipeline failed: {e}")
+            import traceback
+            traceback.print_exc()
+
     # Summary
     print(f"[DONE] Scenes: {len(scenes)} | Keyframes: {len(keyframes)}")
     print(f"  • Scenes JSON : {os.path.join(args.out_dir, 'scenes.json')}")
@@ -389,8 +460,9 @@ def main():
     if args.export_preview:
         print(f"  • Scene previews: {preview_dir}")
     print(f"  • Keyframe images: {key_dir}")
-
-
+    if args.run_object_free_pipeline and object_free_results:
+        print(f"  • Object-free evaluation: {object_free_results['output_dir']}")
+    print("="*60)
 if __name__ == "__main__":
     main()
     
@@ -439,23 +511,39 @@ python pipeline.py \
   --out_dir outputs/run_psd_lpips \
   --export_preview \
   --keyframe_selector random --random_seed 42
-"""
+rgs.out_dir, 'scenes.json')}")
+    print(f"  • Scenes CSV  : {os.path.join(args.out_dir, 'scenes.csv')}")
+    print(f"  • Keyframes CSV: {os.path.join(args.out_dir, 'keyframes.csv')}")
+    if args.export_preview:
+        print(f"  • Scene previews: {preview_dir}")
+    print(f"  • Keyframe images: {key_dir}")
+    if args.run_object_detection and detection_results:
+        print(f"  • Object detections: {os.path.join(args.out_dir, 'object_detections')}")
+    print("="*60)
 
-## transnet v2 + lpips 
-## transnet v2 + dtits
-##
-""" 
-# 1) TransNetV2 (PyTorch) + LPIPS(Alex)
+
+
+# 1) PySceneDetect + LPIPS(Alex)
 python pipeline.py \
   --video samples/Sakuga/10736.mp4 \
-  --backend transnetv2  \
-  --model_dir src/models/TransNetV2 \
-  --prob_threshold 0.5 \
+  --backend pyscenedetect --threshold 27 \
   --distance_backend lpips --lpips_net alex \
-  --sample_stride 8 --max_frames_per_scene 40 \
-  --keyframes_per_scene 2 --nms_radius 4 \
+  --sample_stride 10 --max_frames_per_scene 30 \
+  --keyframes_per_scene 1 --nms_radius 3 \
   --resize_w 320 --resize_h 180 \
-  --out_dir outputs/run_tv2_lpips
+  --out_dir outputs/run_psd_lpips \
+  --export_preview
+
+# 1) PySceneDetect + DISTS(Alex)
+python pipeline.py \
+  --video samples/Sakuga/10736.mp4 \
+  --backend pyscenedetect --threshold 27 \
+  --distance_backend dists --lpips_net alex \
+  --sample_stride 3 --max_frames_per_scene 100 \
+  --keyframes_per_scene 1 --nms_radius 3 \
+  --resize_w 320 --resize_h 180 \
+  --out_dir outputs/run_psd_dists \
+  --export_preview
 
 # 2) TransNetV2 (PyTorch) + DISTS
 python pipeline.py \
@@ -467,4 +555,47 @@ python pipeline.py \
   --sample_stride 8 --max_frames_per_scene 40 \
   --keyframes_per_scene 2 --nms_radius 4 \
   --resize_w 320 --resize_h 180 \
-  --out_dir outputs/run_tv2_dists """
+  --out_dir outputs/run_tv2_dists
+
+# 3) With Object-Free Pipeline
+python pipeline.py \
+  --video ./data/samples/Sakuga/6261.mp4 \
+  --backend pyscenedetect --threshold 27 \
+  --distance_backend lpips --lpips_net alex \
+  --sample_stride 10 --max_frames_per_scene 30 \
+  --keyframes_per_scene 1 --nms_radius 3 \
+  --resize_w 320 --resize_h 180 \
+  --out_dir outputs/run_with_object_free \
+  --export_preview \
+  --run_object_free_pipeline \
+  --detection_config objectfree/config.yaml \
+  --detection_checkpoint ./Grounded-SAM-2/checkpoints/sam2.1_hiera_tiny.pt
+"""
+
+## transnet v2 + lpips 
+## transnet v2 + dtits
+##
+""" 
+# 1) TransNetV2 (PyTorch) + LPIPS(Alex)
+python -m scripts.pipeline \
+  --video data/samples/6261.mp4 \
+  --backend transnetv2  \
+  --model_dir src/models/TransNetV2 \
+  --prob_threshold 0.5 \
+  --distance_backend lpips --lpips_net alex \
+  --sample_stride 8 --max_frames_per_scene 40 \
+  --keyframes_per_scene 2 --nms_radius 4 \
+  --resize_w 320 --resize_h 180 \
+  --out_dir outputs/run_tv2_lpips
+
+# 2) TransNetV2 (PyTorch) + DISTS
+python -m scripts.pipeline \
+  --video data/samples/6261.mp4 \
+  --backend transnetv2  \
+  --model_dir src/models/TransNetV2 \
+  --prob_threshold 0.5 \
+  --distance_backend dists --dists_as_distance 1 \
+  --sample_stride 8 --max_frames_per_scene 40 \
+  --keyframes_per_scene 2 --nms_radius 4 \
+  --resize_w 320 --resize_h 180 \
+  --out_dir data/outputs/run_tv2_dists """

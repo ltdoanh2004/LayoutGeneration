@@ -1,21 +1,21 @@
 # src/keyframe/random_selector.py
-# Random keyframe selector with NMS on sampled index positions.
+# Random keyframe selector for comparison/testing purposes.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import List, Tuple, Optional, Sequence
+from typing import List, Tuple, Optional, Sequence, Any
 
+import os
+import cv2
 import numpy as np
+import random
 
-# Reuse the same Keyframe dataclass if available
-try:
-    from .medoid_selector import Keyframe  # for consistency across modules
-except Exception:
-    @dataclass(frozen=True)
-    class Keyframe:
-        frame_idx: int
-        score: float   # For random selector, we set 0.0 as a placeholder
-        scene_id: int
+
+@dataclass(frozen=True)
+class Keyframe:
+    frame_idx: int
+    score: float
+    scene_id: int
 
 
 class RandomSelector:

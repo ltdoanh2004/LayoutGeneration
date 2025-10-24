@@ -1,0 +1,10 @@
+config:
+  TEXT_PROMPT: "scence cartoon"
+  SAM2_CHECKPOINT: "/home/serverai/ltdoanh/LayoutGeneration/objectfree/Grounded-SAM-2/checkpoints/sam2.1_hiera_tiny.pt"
+  SAM2_MODEL_CONFIG: "/configs/sam2.1/sam2.1_hiera_t.yaml"
+  GROUNDING_DINO_MODEL: "IDEA-Research/grounding-dino-tiny"
+  BOX_THRESHOLD: 0.2
+  TEXT_THRESHOLD: 0.01
+  NMS_THRESHOLD: 0.2
+  SIMILARITY_THRESHOLD: 0.6
+  USE_WBF: false  # Set to true để dùng WBF thay vì NMS  SIMILARITY_THRESHOLD: 0.3  # Ngưỡng similarity để filter bbox trong story coherence

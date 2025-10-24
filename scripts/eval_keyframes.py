@@ -83,8 +83,8 @@ if __name__ == "__main__":
 
 """
 # Evaluate your keyframes only
-python -m scripts.eval_keyframes \
-  --video data/samples/10736.mp4 \
+python eval_keyframes.py \
+  --video samples/Sakuga/10736.mp4 \
   --scenes_json outputs/run_psd_lpips/scenes.json \
   --keyframes_csv outputs/run_psd_lpips/keyframes.csv \
   --out_dir outputs/eval_psd_lpips \
@@ -98,5 +98,7 @@ python eval_keyframes.py \
   --keyframes_csv outputs/run_psd_lpips/keyframes.csv \
   --out_dir outputs/eval_psd_lpips \
   --with_baselines
+
+
 
 """
