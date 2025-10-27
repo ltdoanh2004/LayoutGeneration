@@ -74,38 +74,61 @@ pip install -r requirements.txt
 ```
 
 ### Basic Usage
-
+**! Run train optimizer for choosing parameter for pipeline**
+```bash
+python pipeline/train_optimizer.py \
+  --samples_dir "data/samples/Sakuga" \
+  --pipeline_script "scripts/pipeline_keyframes.py" \
+  --param_config_json "configs/optimizer_grid.json" \
+  --out_dir "outputs/optimizer_out" \
+  --model_dir "src/models/TransNetV2" \
+  --eval_backbone "resnet50" \
+  --eval_device "cuda" \
+  --max_videos 5 \
+  --distance_backend dists \
+  --dists_as_distance 1
+```
 **1️⃣ Single Video Processing**
 
 ```bash
 # TransNetV2 + LPIPS
 python pipeline.py \
-  --video samples/vssum/v11.mp4 \
-  --backend transnetv2 \
+  --video data/samples/Sakuga/42853.mp4 \
+  --backend transnetv2  \
   --model_dir src/models/TransNetV2 \
   --prob_threshold 0.5 \
   --distance_backend lpips --lpips_net alex \
   --sample_stride 5 --max_frames_per_scene 40 \
   --keyframes_per_scene 2 --nms_radius 2 \
+  --resize_w 320 --resize_h 180 \
+  --out_dir data/outputs/Dang/check/run_tv2_lpips
+```
+```bash
+python pipeline.py \
+  --video data/samples/Sakuga/42853.mp4 \
+  --backend transnetv2  \
+  --model_dir src/models/TransNetV2 \
+  --prob_threshold 0.5 \
+  --distance_backend dists --dists_as_distance 1 \
+  --sample_stride 5 --max_frames_per_scene 40 \
+  --keyframes_per_scene 1 --nms_radius 2 \
   --resize_w 320 --resize_h 270 \
-  --out_dir outputs/run_tv2_lpips \
-  --filter_duplicate_keyframes \
-  --cosine_similarity_threshold 0.9
+  --out_dir data/outputs/Dang/check/run_tv2_dists
 ```
 
 **2️⃣ Evaluate Results**
 
 ```bash
-python eval_keyframes.py \
+python scipts/eval_keyframes.py \
   --video samples/vssum/v11.mp4 \
   --scenes_json outputs/run_tv2_lpips_v11/scenes.json \
   --keyframes_csv outputs/run_tv2_lpips_v11/keyframes.csv \
   --out_dir outputs/eval_tv2_lpips_v11 \
   --backbone resnet50 \
   --device cuda \
-  --sample_stride 10 \
+  --sample_stride 1 \
   --max_frames_eval 200 \
-  --tau 0.3 \
+  --tau 0.5 \
   --with_baselines
 ```
 

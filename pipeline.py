@@ -577,8 +577,8 @@ python pipeline.py \
 ##
 """ 
 # 1) TransNetV2 (PyTorch) + LPIPS(Alex)
-python -m scripts.pipeline \
-  --video data/samples/6261.mp4 \
+python pipeline.py \
+  --video data/samples/Sakuga/6261.mp4 \
   --backend transnetv2  \
   --model_dir src/models/TransNetV2 \
   --prob_threshold 0.5 \
@@ -589,7 +589,7 @@ python -m scripts.pipeline \
   --out_dir outputs/run_tv2_lpips
 
 # 2) TransNetV2 (PyTorch) + DISTS
-python -m scripts.pipeline \
+python -m pipeline \
   --video data/samples/6261.mp4 \
   --backend transnetv2  \
   --model_dir src/models/TransNetV2 \

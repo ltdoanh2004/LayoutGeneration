@@ -14,6 +14,13 @@ from itertools import product
 from typing import Dict, Any, List, Tuple
 
 import numpy as np
+import sys
+# Ensure project root is on sys.path so imports like `eval` and `src` work
+# when this script is executed from a subdirectory or via a relative path.
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 # Import logic cốt lõi từ evaluator, giống như eval_keyframes.py
 from eval.evaluator import (
     EvalConfig, load_scenes_json, load_keyframes_csv,
@@ -50,12 +57,10 @@ class HyperparameterOptimizer:
         self.base_output_dir = base_output_dir
         self.eval_config = eval_config
         self.model_dir = model_dir
-        self.pipeline_base_args = pipeline_base_args + [
-            "--backend", "transnetv2",  # Default backend
-            "--distance_backend", "lpips",  # Default distance metric
-            "--lpips_net", "alex",  # Default LPIPS backbone
-        ]
-        if model_dir:
+        # Use the pipeline_base_args provided by OptimizerApp (do not force lpips)
+        self.pipeline_base_args = list(pipeline_base_args) if pipeline_base_args else []
+        # Ensure model_dir is present in base args when provided
+        if model_dir and "--model_dir" not in self.pipeline_base_args:
             self.pipeline_base_args.extend(["--model_dir", model_dir])
         self.target_metric = target_metric
         self.video_paths = self._find_video_files()
@@ -96,8 +101,23 @@ class HyperparameterOptimizer:
         full_command_str = ' '.join(cmd)
         
         try:
-            # Chạy lệnh và lưu kết quả
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8')
+            # 🔧 FIX: Get project root directory
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            
+            # 🔧 FIX: Set PYTHONPATH to include project root
+            env = os.environ.copy()
+            env['PYTHONPATH'] = f"{project_root}:{env.get('PYTHONPATH', '')}"
+            
+            # Chạy lệnh từ project root để fix import errors
+            result = subprocess.run(
+                cmd, 
+                check=True, 
+                capture_output=True, 
+                text=True, 
+                encoding='utf-8',
+                cwd=project_root,  # Run từ project root
+                env=env              # Set PYTHONPATH
+            )
 
             # IN OUTPUT NGAY CẢ KHI THÀNH CÔNG (để gỡ lỗi)
             if result.stdout:
@@ -109,6 +129,8 @@ class HyperparameterOptimizer:
             # Lỗi này xảy ra nếu pipeline.py thoát với code khác 0
             print(f"  [Error] Pipeline script FAILED (non-zero exit) for {video_path}.")
             print(f"  [Error] Full command: {full_command_str}")
+            print(f"  [Error] Working directory: {project_root}")
+            print(f"  [Error] PYTHONPATH: {env.get('PYTHONPATH')}")
             print(f"  [Error] STDOUT: {e.stdout.strip()}")
             print(f"  [Error] STDERR: {e.stderr.strip()}")
             raise  # Re-raise exception để dừng
@@ -141,7 +163,7 @@ class HyperparameterOptimizer:
             os.makedirs(eval_output_dir, exist_ok=True)
             
             cmd = [
-                "python", "eval_keyframes.py",
+                "python", "scripts/eval_keyframes.py",
                 "--video", video_path,
                 "--scenes_json", scenes_json_path,
                 "--keyframes_csv", keyframes_csv_path,
@@ -154,7 +176,20 @@ class HyperparameterOptimizer:
             if self.eval_config.device:
                 cmd.extend(["--device", self.eval_config.device])
 
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8')
+            # 🔧 FIX: Set PYTHONPATH and working directory
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            env = os.environ.copy()
+            env['PYTHONPATH'] = f"{project_root}:{env.get('PYTHONPATH', '')}"
+
+            result = subprocess.run(
+                cmd, 
+                check=True, 
+                capture_output=True, 
+                text=True, 
+                encoding='utf-8',
+                cwd=project_root,  # Run từ project root
+                env=env              # Set PYTHONPATH
+            )
             print(f"  [Evaluation STDOUT] {result.stdout.strip()}")
             if result.stderr:
                 print(f"  [Evaluation STDERR] {result.stderr.strip()}")
@@ -186,12 +221,8 @@ class HyperparameterOptimizer:
             return 0.0 # Penalize failures
 
         if self.target_metric == "Combined":
-            # Try different metric names that might exist in eval_results.json
-            rep = metrics.get("Representativeness_mean", 0.0)
-            if rep == 0.0:
-                # Try alternative names
-                rep = metrics.get("Representativeness", 0.0)
-                rep = metrics.get("RecErr", 0.0) if rep == 0.0 else rep
+            rep = 1 - metrics.get("RecErr", 0.0)
+
             
             # Build the tau key
             tau_key = f"TemporalCoverage@{self.eval_config.tau_temporal}"
@@ -338,10 +369,34 @@ class OptimizerApp:
     """
     
     def __init__(self):
-        self.args, self.pipeline_base_args = self._parse_args()
+        # Parse known args and collect unknown args as base args to forward to the pipeline
+        known_args, unknown_args = self._parse_args()
+        self.args = known_args
+
+        # Start pipeline_base from any extra CLI args the user provided
+        pipeline_base: List[str] = list(unknown_args)
+
+        # Ensure backend and distance backend flags are present (use CLI defaults otherwise)
+        if "--backend" not in pipeline_base:
+            pipeline_base.extend(["--backend", self.args.backend])
+        if "--distance_backend" not in pipeline_base:
+            pipeline_base.extend(["--distance_backend", self.args.distance_backend])
+
+        # Append lpips/dists specific flags only when relevant and not already provided
+        if self.args.distance_backend == "lpips" and "--lpips_net" not in pipeline_base:
+            pipeline_base.extend(["--lpips_net", self.args.lpips_net])
+        if self.args.distance_backend == "dists" and "--dists_as_distance" not in pipeline_base:
+            pipeline_base.extend(["--dists_as_distance", str(self.args.dists_as_distance)])
+
+        # Ensure model_dir is forwarded to the pipeline if provided
+        if self.args.model_dir and "--model_dir" not in pipeline_base:
+            pipeline_base.extend(["--model_dir", self.args.model_dir])
+
+        self.pipeline_base_args = pipeline_base
+
         self.eval_config = self._build_eval_config()
         self.param_grid = load_param_grid(self.args.param_config_json)
-        
+
         os.makedirs(self.args.out_dir, exist_ok=True)
 
     def _parse_args(self):
@@ -354,7 +409,7 @@ class OptimizerApp:
         ap.add_argument("--out_dir", required=True, type=str, help="Base directory to store all optimization runs and results.")
         ap.add_argument("--target_metric", type=str, default="Combined", help="Metric from eval results to optimize (e.g., 'Representativeness_mean' or 'Combined').")
         ap.add_argument("--max_videos", type=int, default=2, help="Maximum number of videos to evaluate per parameter set (default: 2).")
-        ap.add_argument("--early_stopping_patience", type=int, default=5, help="Number of iterations without improvement before stopping (default: 5).")
+        ap.add_argument("--early_stopping_patience", type=int, default=10, help="Number of iterations without improvement before stopping (default: 5).")
         
         # --- Backend and Distance Metric ---
         ap.add_argument("--backend", type=str, default="transnetv2", help="Scene detection backend (default: transnetv2).")
@@ -370,7 +425,7 @@ class OptimizerApp:
         ap.add_argument("--eval_input_h", type=int, default=224, help="Input height for evaluation model.")
         ap.add_argument("--eval_sample_stride", type=int, default=1, help="Stride for sampling frames during evaluation.")
         ap.add_argument("--eval_max_frames", type=int, default=100, help="Maximum number of frames to evaluate.")
-        ap.add_argument("--eval_tau", type=float, default=0.5, help="Temporal consistency threshold for evaluation.")
+        ap.add_argument("--eval_tau", type=float, default=0.3, help="Temporal consistency threshold for evaluation.")
 
         # --- Các tham số khác giữ nguyên ---
         

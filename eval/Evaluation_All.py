@@ -1,208 +1,66 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Quality Checker for Keyframe Evaluation Results
-Analyzes eval_results.csv and provides quality rating
+Evaluation Results Analyzer
+Analyzes eval_results.json and aggregates metrics from evaluator.py
+Strictly follows evaluator.py metric definitions without thresholds or ratings.
 """
 
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Dict, Tuple, List
+from typing import Dict, List
 import json
 import os
 
-class KeyframeQualityChecker:
+class EvaluationResultsAnalyzer:
+    """
+    Analyzes evaluation results directly from evaluator.py output.
+    No thresholds or ratings - just raw metric values.
+    """
+    
     def __init__(self):
-        # Định nghĩa ngưỡng cho từng metric dựa trên ý nghĩa thực tế
-        self.thresholds = {
-            # I. Tính Đại diện (Representativeness)
-            # RecErr (thấp = tốt, gần 0)
-            'RecErr': {'excellent': 0.3, 'good': 0.5, 'fair': 0.8, 'poor': float('inf')},
-            
-            # Frechet Distance (thấp = tốt, gần 0)
-            'Frechet': {'excellent': 0.8, 'good': 1.2, 'fair': 1.6, 'poor': float('inf')},
-            
-            # II. Tính Bao phủ (Coverage)
-            # Scene Coverage (cao = tốt, lý tưởng = 1.0)
-            'SceneCoverage': {'excellent': 0.95, 'good': 0.85, 'fair': 0.70, 'poor': 0.0},
-            
-            # Temporal Coverage (cao = tốt, lý tưởng = 1.0)
-            'TemporalCoverage@tau': {'excellent': 0.7, 'good': 0.5, 'fair': 0.3, 'poor': 0.0},
-            
-            # III. Tính Đa dạng (Diversity)
-            # Redundancy Mean Cosine (thấp = tốt, gần 0 = ít redundant)
-            'RedundancyMeanCos': {'excellent': 0.2, 'good': 0.4, 'fair': 0.6, 'poor': float('inf')},
-            
-            # Min Pairwise Distance (cao = tốt, gần 1.0 = đa dạng)
-            'MinPairwiseDist': {'excellent': 0.6, 'good': 0.4, 'fair': 0.2, 'poor': 0.0},
-            
-            # IV. Chất lượng Hình ảnh (Quality Proxies)
-            # Sharpness_med (cao = tốt, không mờ)
-            'Sharpness_med': {'excellent': 200, 'good': 120, 'fair': 80, 'poor': 0},
-            
-            # Exposure_med (gần 128 ± 40 = tốt, tránh quá sáng/tối)
-            'Exposure_med': {'excellent': (88, 168), 'good': (60, 196), 'fair': (40, 216), 'poor': (0, 255)},
-            
-            # Noise_med (thấp = tốt, gần 0)
-            'Noise_med': {'excellent': 3.0, 'good': 5.0, 'fair': 7.0, 'poor': float('inf')},
-        }
-        
-        # Nhóm metrics theo ý nghĩa
+        # Metrics from evaluator.py eval_one_set() function
+        # Grouped by category for reference only (no scoring/weighting)
         self.metric_groups = {
             'Representativeness': ['RecErr', 'Frechet'],
             'Coverage': ['SceneCoverage', 'TemporalCoverage@tau'],
             'Diversity': ['RedundancyMeanCos', 'MinPairwiseDist'],
-            'Image Quality': ['Sharpness_med', 'Exposure_med', 'Noise_med']
+            'Image_Quality': ['Sharpness_med', 'Exposure_med', 'Noise_med'],
+            'Metadata': ['NumKeys', 'NumAllEmbed']
         }
         
-        # Trọng số cho từng nhóm
-        self.group_weights = {
-            'Representativeness': 0.3,
-            'Coverage': 0.3,
-            'Diversity': 0.2,
-            'Image Quality': 0.2
-        }
-        
-        # Trọng số cho từng metric trong nhóm của nó
-        self.metric_weights = {
-            'RecErr': 0.5,
-            'Frechet': 0.5,
-            'SceneCoverage': 0.6,
-            'TemporalCoverage@tau': 0.4,
-            'RedundancyMeanCos': 0.5,
-            'MinPairwiseDist': 0.5,
-            'Sharpness_med': 0.4,
-            'Exposure_med': 0.3,
-            'Noise_med': 0.3,
-        }
+        # All metrics from evaluator.py
+        self.all_metrics = [
+            'RecErr', 'Frechet', 'SceneCoverage', 'TemporalCoverage@tau',
+            'RedundancyMeanCos', 'MinPairwiseDist', 'Sharpness_med', 'Exposure_med', 'Noise_med',
+            'NumKeys', 'NumAllEmbed'
+        ]
 
-    def rate_metric(self, metric_name: str, value: float) -> Tuple[str, int]:
-        """Rate a single metric and return (rating, score)"""
-        if metric_name not in self.thresholds:
-            return 'unknown', 0
-            
-        thresholds = self.thresholds[metric_name]
+    def analyze_results(self, json_path: str) -> Dict:
+        """
+        Analyze eval_results.json directly from evaluator.py.
+        Returns raw metric values without thresholds or ratings.
+        """
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                metrics = json.load(f)
+        except Exception as e:
+            return {'error': f'Failed to load {json_path}: {e}'}
         
-        # Special handling for Exposure (range-based)
-        if metric_name == 'Exposure_med':
-            if thresholds['excellent'][0] <= value <= thresholds['excellent'][1]:
-                return 'excellent', 4
-            elif thresholds['good'][0] <= value <= thresholds['good'][1]:
-                return 'good', 3
-            elif thresholds['fair'][0] <= value <= thresholds['fair'][1]:
-                return 'fair', 2
-            else:
-                return 'poor', 1
-        
-        # For "higher is better" metrics
-        if metric_name in ['SceneCoverage', 'TemporalCoverage@tau', 'MinPairwiseDist', 'Sharpness_med']:
-            if value >= thresholds['excellent']:
-                return 'excellent', 4
-            elif value >= thresholds['good']:
-                return 'good', 3
-            elif value >= thresholds['fair']:
-                return 'fair', 2
-            else:
-                return 'poor', 1
-        
-        # For "lower is better" metrics
-        else:
-            if value <= thresholds['excellent']:
-                return 'excellent', 4
-            elif value <= thresholds['good']:
-                return 'good', 3
-            elif value <= thresholds['fair']:
-                return 'fair', 2
-            else:
-                return 'poor', 1
-
-    def analyze_results(self, csv_path: str) -> Dict:
-        """Analyze eval_results.csv and return comprehensive quality assessment"""
-        df = pd.read_csv(csv_path)
-        metrics = dict(zip(df['metric'], df['value']))
-        
-        results = {
-            'file_path': csv_path,
-            'metrics': {},
-            'group_scores': {},
-            'overall_score': 0,
-            'overall_rating': '',
-            'recommendations': [],
-            'summary': {}
+        # Extract all metrics
+        result = {
+            'file_path': json_path,
+            'metrics': {}
         }
         
-        # Analyze each metric
-        for metric, value in metrics.items():
-            if metric in self.thresholds:
-                rating, score = self.rate_metric(metric, value)
-                
-                results['metrics'][metric] = {
-                    'value': value,
-                    'rating': rating,
-                    'score': score,
-                }
+        for metric in self.all_metrics:
+            if metric in metrics:
+                result['metrics'][metric] = float(metrics[metric])
         
-        # Calculate group scores
-        group_weighted_scores = {}
-        for group_name, group_metrics in self.metric_groups.items():
-            group_score = 0
-            group_weight_sum = 0
-            
-            for metric in group_metrics:
-                if metric in results['metrics']:
-                    metric_data = results['metrics'][metric]
-                    metric_weight = self.metric_weights.get(metric, 1.0)
-                    group_score += metric_data['score'] * metric_weight
-                    group_weight_sum += metric_weight
-            
-            if group_weight_sum > 0:
-                avg_group_score = group_score / group_weight_sum
-                group_weighted_scores[group_name] = avg_group_score
-                
-                results['group_scores'][group_name] = {
-                    'score': round(avg_group_score, 3),
-                    'rating': self._score_to_rating(avg_group_score)
-                }
-        
-        # Calculate overall score (weighted by group weights)
-        total_weighted_score = 0
-        total_weights = 0
-        for group_name, group_score in group_weighted_scores.items():
-            group_weight = self.group_weights.get(group_name, 0)
-            total_weighted_score += group_score * group_weight
-            total_weights += group_weight
-        
-        if total_weights > 0:
-            overall_score = total_weighted_score / total_weights
-            results['overall_score'] = round(overall_score, 3)
-            results['overall_rating'] = self._score_to_rating(overall_score)
-        
-        # Generate recommendations
-        results['recommendations'] = self._generate_recommendations(results['metrics'])
-        
-        # Summary statistics
-        results['summary'] = {
-            'num_keyframes': int(metrics.get('NumKeys', 0)),
-            'num_embeddings': int(metrics.get('NumAllEmbed', 0)),
-            'keyframe_ratio': round(metrics.get('NumKeys', 0) / max(metrics.get('NumAllEmbed', 1), 1), 3),
-            'critical_issues': self._find_critical_issues(results['metrics'])
-        }
-        
-        return results
-    
-    def _score_to_rating(self, score: float) -> str:
-        """Convert numeric score to rating"""
-        if score >= 3.5:
-            return 'excellent'
-        elif score >= 2.5:
-            return 'good'
-        elif score >= 1.5:
-            return 'fair'
-        else:
-            return 'poor'
+        return result
 
-    def batch_analyze_outputs_eval(self, outputs_eval_dir: str = "outputs_eval") -> Dict:
+    def batch_analyze_outputs(self, outputs_dir: str = "outputs") -> Dict:
         """
         Automatically scan outputs_eval directory and analyze all eval_results.csv files
         """
@@ -476,19 +334,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-"""
-USAGE EXAMPLES:
-
-# Analyze all videos in outputs_eval directory
-python quality_checker.py
-
-# Specify custom directory and output files
-python quality_checker.py --eval_dir outputs_eval --output_report my_report.txt
-
-# Quick usage in Python
-from quality_checker import KeyframeQualityChecker
-checker = KeyframeQualityChecker()
-results = checker.batch_analyze_outputs_eval("outputs_eval")
-checker.generate_comprehensive_report(results, "report.txt")
-"""

@@ -254,7 +254,7 @@ def parse_args():
     # Pipeline options
     p.add_argument("--backend", default="transnetv2", help="Scene detector backend")
     p.add_argument("--model_dir", default="src/models/TransNetV2", help="Path to TransNetV2 model")
-    p.add_argument("--prob_threshold", type=float, default=0.7)
+    p.add_argument("--prob_threshold", type=float, default=0.5)
     p.add_argument("--distance_backend", choices=["dists", "lpips"], default="dists",
                    help="Distance function for keyframe selection")
     p.add_argument("--dists_as_distance", type=int, choices=[0, 1], default=1,

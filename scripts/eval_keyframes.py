@@ -11,6 +11,9 @@ import csv
 
 import cv2
 import numpy as np
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from eval.evaluator import (
     EvalConfig, load_scenes_json, load_keyframes_csv,

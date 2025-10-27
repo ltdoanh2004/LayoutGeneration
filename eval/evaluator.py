@@ -92,6 +92,9 @@ def eval_one_set(
         )
     else:
         feats_all, idx_all = precomputed_all_feats, precomputed_all_idx
+    feats_all = feats_all[~np.isnan(feats_all).any(axis=1)]
+    
+
 
     # Intersect provided key_indices with idx_all space for fair comparison in embedding space
     keys_in_all = sorted(set(key_indices).intersection(set(idx_all)))
@@ -107,6 +110,7 @@ def eval_one_set(
     key_samples = [FrameSample(i) for i in keys_in_all]
     key_frames = extractor.load_frames(video_path, key_samples)
     feats_keys = extractor.embed_images(key_frames, batch_size=32)
+    feats_keys = feats_keys[~np.isnan(feats_keys).any(axis=1)]
 
     # Metrics
     rec = reconstruction_error(feats_all, feats_keys)
