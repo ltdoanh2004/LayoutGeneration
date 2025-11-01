@@ -59,7 +59,6 @@ class CompletePipeline:
         )
         
 
-    
     def run_object_detection(self, keyframes_folder, output_dir):
         """Step 1: Run object detection"""
         print("STEP 1: OBJECT DETECTION")
@@ -73,7 +72,7 @@ class CompletePipeline:
         print(f"Object detection completed: {len(results)} images processed")
         return True
  
-    
+
     def run_story_coherence(self, detection_json, keyframes_folder, output_dir):
         """Step 2: Run story coherence evaluation"""
         print("STEP 2: STORY COHERENCE EVALUATION")
@@ -288,7 +287,33 @@ class CompletePipeline:
                     detection_results = detection_data.get('results', [])
             except:
                 detection_results = None
-        
+
+            # Step 2.6: Save cropped object images
+            cropped_output = os.path.join(output_dir, 'cropped_objects')
+            os.makedirs(cropped_output, exist_ok=True)
+
+            print("STEP 2.6: SAVING CROPPED OBJECT IMAGES")
+            print(f"{'='*70}")
+
+            for idx, img_path in enumerate(keyframe_images):
+                if idx < len(story_results):
+                    crop_results = story_results[idx]['crop_results']
+                    image = Image.open(img_path).convert("RGB")
+                    base_name = os.path.splitext(os.path.basename(img_path))[0]
+
+                    for obj_idx, result in enumerate(crop_results):
+                        if result.get('keep', True):  # chỉ lưu những bbox được giữ lại
+                            x1, y1, x2, y2 = [int(c) for c in result['bbox']]
+                            cropped = image.crop((x1, y1, x2, y2))
+
+                            # tạo tên file rõ ràng
+                            label = f"id{result['detection_id']}"
+                            crop_filename = f"{base_name}_{label}.png"
+                            crop_path = os.path.join(cropped_output, crop_filename)
+
+                            cropped.save(crop_path)
+            print(f"Cropped objects saved in: {cropped_output}")
+
         # Step 3: Comprehensive Evaluation (always run, independent of detection)
         comprehensive_output = os.path.join(output_dir, 'comprehensive_eval')
         comprehensive_results = self.run_comprehensive_eval(keyframes_folder, comprehensive_output)

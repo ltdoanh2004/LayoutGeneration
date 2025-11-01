@@ -99,7 +99,7 @@ python pipeline.py \
   --prob_threshold 0.5 \
   --distance_backend lpips --lpips_net alex \
   --sample_stride 5 --max_frames_per_scene 40 \
-  --keyframes_per_scene 2 --nms_radius 2 \
+  --keyframes_per_scene 1 --nms_radius 2 \
   --resize_w 320 --resize_h 180 \
   --out_dir data/outputs/Dang/check/run_tv2_lpips
 ```
