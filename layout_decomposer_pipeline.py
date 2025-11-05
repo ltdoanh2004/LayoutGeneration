@@ -22,6 +22,7 @@ import sys
 
 from tqdm import tqdm
 
+
 # --- Registries (auto-register built-ins via package __init__) ---
 from src.scene_detection import (
     create_detector,
@@ -49,7 +50,7 @@ import repos.Colla.shape_decomposition as sd
 import repos.Colla.sas_optimization as so
 import repos.Colla.collage_assembly as ca
 import repos.Colla.create_masks as cm
-
+from repos.Colla import evaluation
 
 
 
@@ -387,6 +388,8 @@ def main():
     cm.batch_create_masks(image_pool, input_mask_folder, mask_type='simple')
     so.optimization(args.input_shape_layout, input_mask_folder, object_free_results['output_dir'])
     ca.render_collage(image_pool, object_free_results['output_dir'], args.scaling_factor)
+    metrics = evaluation.evaluate_pipeline_output(object_free_results['output_dir'],
+                                                   args.input_shape_layout)
 
 if __name__ == "__main__":
     main()
@@ -514,6 +517,23 @@ python layout_decomposer_pipeline.py \
   --run_object_free_pipeline \
   --detection_config objectfree/config.yaml \
   --detection_checkpoint ./Grounded-SAM-2/checkpoints/sam2.1_hiera_tiny.pt
+
+
+# 3) With layout pipeline
+python layout_decomposer_pipeline.py \
+  --video ./data/samples/Sakuga/6261.mp4 \
+  --backend pyscenedetect --threshold 27 \
+  --distance_backend lpips --lpips_net alex \
+  --sample_stride 10 --max_frames_per_scene 30 \
+  --keyframes_per_scene 1 --nms_radius 3 \
+  --resize_w 320 --resize_h 180 \
+  --out_dir data/outputs/run_collage \
+  --export_preview \
+  --run_object_free_pipeline \
+  --detection_config objectfree/config.yaml \
+  --detection_checkpoint ./Grounded-SAM-2/checkpoints/sam2.1_hiera_tiny.pt \
+  --input_shape_layout repos/Colla/input_data/layout/baby.png \
+  --input_mask_folder repos/Colla/input_data/image_collections/children_mask \
 """
 
 
