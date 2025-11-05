@@ -386,7 +386,6 @@ def main():
     image_pool = os.path.join(object_free_results['output_dir'], 'cropped_objects')
     cm.batch_create_masks(image_pool, input_mask_folder, mask_type='simple')
     so.optimization(args.input_shape_layout, input_mask_folder, object_free_results['output_dir'])
-    
     ca.render_collage(image_pool, object_free_results['output_dir'], args.scaling_factor)
 
 if __name__ == "__main__":
