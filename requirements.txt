@@ -7,3 +7,11 @@ torch==2.8.0
 dists-pytorch==0.1
 scikit-learn==1.7.2
 matplotlib==3.10.7
+ftfy 
+regex 
+tqdm
+git+https://github.com/openai/CLIP.git
+scikit-image
+tensorflow_hub
+imscore
+ruptures
